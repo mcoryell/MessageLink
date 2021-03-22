@@ -1,10 +1,10 @@
 import socket
 import sys
 
-from cryptography.hazmat.primitives import serialization, padding
+from cryptography.hazmat.primitives import serialization, padding, hashes
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import rsa, padding as p
 
 HOST = '35.185.50.240'  # The server's hostname or IP address
 PORT = 30330            # The port used by the server
@@ -65,6 +65,30 @@ def swap_public_keys(encrypted_client_public_key, s, aes_info):
     return decrypt_server_public_key(encrypted_server_public_key, aes_info)
 
 
+def encrypt_message(message, server_public_key):
+    ciphertext = server_public_key.encrypt(
+        str.encode(message),
+        p.OAEP(
+            mgf=p.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None)
+    )
+
+    return ciphertext
+
+
+def decrypt_message(message, client_private_key):
+    plaintext = client_private_key.decrypt(
+        message,
+        p.OAEP(
+            mgf=p.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None)
+    )
+
+    return plaintext
+
+
 def main():
     # Initialize client program with welcome prompt
     print('Welcome to MessageLink!')
@@ -92,13 +116,14 @@ def main():
         server_rsa_public_key = load_pem_public_key(decrypted_server_public_key)
 
         while True:
-            # Need to encrypt the message with server's public key (server_rsa_public_key)
             message = input("Message to Send: ")
-            s.send(str.encode(message))
+            s.send(encrypt_message(message, server_rsa_public_key))
             server_response = s.recv(1024)
             if message == 'MessageLink -terminate':
                 break
-            print(server_response.decode('utf-8'))
+            decrypted_server_response = decrypt_message(server_response, rsa_keys['private_key'])
+            print('Ciphertext received from server: ', server_response, sep='')
+            print(decrypted_server_response.decode('utf-8'))
 
         s.close()
 

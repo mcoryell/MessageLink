@@ -2,10 +2,10 @@ import socket
 import sys
 from _thread import *
 
-from cryptography.hazmat.primitives import serialization, padding
+from cryptography.hazmat.primitives import serialization, padding, hashes
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import rsa, padding as p
 
 HOST = '0.0.0.0'  # Listen from any IP
 PORT = 30330  # Port to listen on (non-privileged ports are > 1023)
@@ -65,15 +65,40 @@ def decrypt_client_public_key(encrypted_client_public_key, aes_info):
     return client_public_key
 
 
-def client_thread(client):
-    # Need to encrypt server_response with client's public key
+def encrypt_message(message, client_public_key):
+    ciphertext = client_public_key.encrypt(
+        str.encode(message),
+        p.OAEP(
+            mgf=p.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None)
+    )
+
+    return ciphertext
+
+
+def decrypt_message(message, server_private_key):
+    plaintext = server_private_key.decrypt(
+        message,
+        p.OAEP(
+            mgf=p.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None)
+    )
+
+    return plaintext
+
+
+def client_thread(client, rsa_keys):
     while True:
         data = client['connection'].recv(1024)
-        if data.decode('utf-8') == 'MessageLink -terminate':
+        decrypted_data = decrypt_message(data, rsa_keys['private_key'])
+        if decrypted_data.decode('utf-8') == 'MessageLink -terminate':
             break
-        print('Message received from ', client['ip_address'], ': ', data.decode('utf-8'), sep='')
-        server_response = 'Server Response: Message has been received as \'' + data.decode('utf-8') + '\''
-        client['connection'].send(str.encode(server_response))
+        print('Ciphertext received from ', client['ip_address'], ': ', data, sep='')
+        print('Message received from ', client['ip_address'], ': ', decrypted_data.decode('utf-8'), sep='')
+        server_response = 'Server Response: Message has been received as \'' + decrypted_data.decode('utf-8') + '\''
+        client['connection'].send(encrypt_message(server_response, client['public_key']))
 
     print('Status: A MessageLink Client with IP Address, ', client['ip_address'], ', has disconnected.', sep='')
     client['connection'].close()
@@ -123,7 +148,7 @@ def main():
             client_list.append(client)
 
             # Start messaging
-            start_new_thread(client_thread, (client,))
+            start_new_thread(client_thread, (client, rsa_keys,))
 
 
 if __name__ == '__main__':
