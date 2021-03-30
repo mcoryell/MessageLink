@@ -121,34 +121,44 @@ def main():
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((HOST, PORT))
         except OSError:
-            print(OSError)
+            s.shutdown(socket.SHUT_RDWR)
+            s.close()
+            print("Unable to bind socket. Please try to run the program again!\n")
+            exit()
 
         print('Status: Currently awaiting a connection.')
         s.listen(100)  # Listens for up to 100 client connections
 
-        while True:
-            # Allow the client to connect
-            conn, addr = s.accept()
-            print('Status: A new MessageLink Client connection has been established. Client:', addr[0])
+        try:
+            while True:
+                # Allow the client to connect
+                conn, addr = s.accept()
+                print('Status: A new MessageLink Client connection has been established. Client:', addr[0])
 
-            # Swap public keys
-            decrypted_client_public_key = decrypt_client_public_key(conn.recv(1024), aes_info)
-            print('Public Key from Client (', addr[0], '):\n\n', decrypted_client_public_key.decode('utf-8'), sep='')
-            conn.send(encrypted_server_public_key)
+                # Swap public keys
+                decrypted_client_public_key = decrypt_client_public_key(conn.recv(1024), aes_info)
+                print('Public Key from Client (', addr[0], '):\n\n', decrypted_client_public_key.decode('utf-8'), sep='')
+                conn.send(encrypted_server_public_key)
 
-            # Add the new client connection to the list.
-            # Note: The client's public key is in bytes and needed to be converted to an RSA public key object
-            client = {
-                "connection": conn,
-                "ip_address": addr[0],
-                "public_key": load_pem_public_key(decrypted_client_public_key)
-            }
-            client_list.append(client)
+                # Add the new client connection to the list.
+                # Note: The client's public key is in bytes and needed to be converted to an RSA public key object
+                client = {
+                    "connection": conn,
+                    "ip_address": addr[0],
+                    "public_key": load_pem_public_key(decrypted_client_public_key)
+                }
+                client_list.append(client)
 
-            # Start messaging
-            start_new_thread(client_thread, (client, rsa_keys,))
+                # Start messaging
+                start_new_thread(client_thread, (client, rsa_keys,))
+
+        except KeyboardInterrupt:
+            s.shutdown(socket.SHUT_RDWR)
+            s.close()
+            print("\n\nThank you for running MessageLink Server!\n")
 
 
 if __name__ == '__main__':

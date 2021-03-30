@@ -4,10 +4,10 @@ import sys
 import json
 
 from base64 import b64encode
-from cryptography.hazmat.primitives import serialization, padding, hashes
+from cryptography.hazmat.primitives import padding, hashes
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives.asymmetric import rsa, padding as p
+from cryptography.hazmat.primitives.asymmetric import padding as p
 
 HOST = '35.185.50.240'  # The server's hostname or IP address
 PORT = 30330            # The port used by the server
@@ -20,6 +20,17 @@ def create_aes_info():
     }
 
     return aes_info
+
+def encrypt_aes_info(aes_info, server_public_key):
+    ciphertext = server_public_key.encrypt(
+        aes_info,
+        p.OAEP(
+            mgf=p.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None)
+    )
+
+    return ciphertext
 
 
 def encrypt_message(message, aes_info):
@@ -68,8 +79,15 @@ def main():
         s.connect((HOST, PORT))
         print('Status: Connection has been established.\n')
 
+        # Receive server's public key
+        server_public_key_bytes = s.recv(1024)
+        print('Server Public Key:\n\n', server_public_key_bytes.decode('utf-8'), sep='')
+
+        # The server's public key is in bytes and needed to be converted to an RSA public key object
+        server_public_key = load_pem_public_key(server_public_key_bytes)
+
         # Share AES info with the server
-        s.send(json.dumps(prepped_aes_info).encode('utf-8'))
+        s.send(encrypt_aes_info(json.dumps(prepped_aes_info).encode('utf-8'), server_public_key))
 
         while True:
             message = input("Message to Send: ")
